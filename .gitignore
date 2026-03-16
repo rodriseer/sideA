@@ -1,0 +1,19 @@
+# Credentials - do not commit
+keys/
+.env
+.env.*
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Build outputs
+dist/
+build/
+*.spec.bak
+
+# OS files
+.DS_Store
+Thumbs.db
