@@ -1,7 +1,10 @@
-# Credentials - do not commit
+# Credentials
 keys/
 .env
 .env.*
+
+# Local datasets / test images
+RAW PHOTOS/
 
 # Python
 .venv/
@@ -12,8 +15,7 @@ __pycache__/
 # Build outputs
 dist/
 build/
-*.spec.bak
 
-# OS files
+# OS
 .DS_Store
 Thumbs.db
