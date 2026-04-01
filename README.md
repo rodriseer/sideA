@@ -1,34 +1,38 @@
-## Side_A – Automatic Photo Organization with Google Cloud Vision
+## Side_A – Lightroom-safe Metadata Tagging Assistant (Google Cloud Vision)
 
-Side_A is a Python project that automatically analyzes and organizes photos using the **Google Cloud Vision API**.
+Side_A is a Python project that analyzes photos using the **Google Cloud Vision API** and generates **metadata + keyword suggestions** for Lightroom-compatible workflows.
 
 It will:
 
 - **Analyze each image** with the Vision API.
-- **Classify** each image into photographer-friendly categories:
-  - **Events** – celebrations, parties, weddings
-  - **Portraits** – single or couple photos
-  - **Crowd** – group photos, audiences
-  - **Stage** – performances, presentations
-  - **Indoor** – interior shots
-  - **Night** – nighttime, evening
-  - **Formal** – business, corporate
-  - **Misc** – everything else
-- **Copy** each image into an `Organized` subfolder with category subfolders.
+- **Classify** each image into simple categories:
+  - **Outdoor**
+  - **Indoor**
+  - **Photobooth**
+  - **Portrait**
+  - **Group**
+  - **Other**
+- **Write outputs only** (`metadata.csv`, `suggested_keywords.csv`, and an optional future `optional_xmp/` export folder).
+
+### Lightroom compatibility (important)
+
+Lightroom catalogs depend on **stable file paths** for RAW/photo files. If files are moved, renamed, or reorganized on disk, Lightroom can lose references.
+
+**This tool does not move or rename your original files.** It only reads images where they already are and generates metadata/keyword suggestions for Lightroom workflows.
 
 ---
 
 ## Project structure
 
-- **`app.py`**: Main program that runs the full pipeline (command-line).
-- **`gui.py`**: Desktop GUI for photographers (folder selection, progress, one-click processing).
+- **`app.py`**: Main pipeline (scan folder → Vision → classify → write CSV outputs).
+- **`gui.py`**: Desktop GUI (folder selection, progress, lightweight review/edit of suggested keywords).
 - **`vision_client.py`**: Wraps Google Cloud Vision API calls.
-- **`classifier.py`**: Rule-based logic for Events, Portraits, Crowd, Stage, Indoor, Night, Formal, Misc.
-- **`organizer.py`**: Copies images into category folders.
-- **`metadata.py`**: Optional metadata CSV (enable with `SIDE_A_DEBUG=1` for debugging).
+- **`classifier.py`**: Rule-based logic for Outdoor, Indoor, Photobooth, Portrait, Group, Other.
+- **`organizer.py`**: Output manager (Lightroom-safe: creates output folders only, no file operations on originals).
+- **`metadata.py`**: CSV writers for `metadata.csv` and `suggested_keywords.csv`.
 - **`requirements.txt`**: Python dependencies.
 - **`README.md`**: This documentation.
-- **`input_images/`**: Default input folder for CLI mode.
+- **`input_images/`**: Optional default input folder for CLI mode (you can also pick any folder in the GUI).
 - **`background.png`** (optional): Background image for the GUI. Falls back to dark theme if missing.
 
 ---
@@ -109,13 +113,14 @@ If none are found, the app shows a clear error with the expected path.
 
 ---
 
-## 3. Add images to `input_images/`
+## 3. Choose a folder of photos (no file moving)
 
-1. Ensure the folder `input_images/` exists in the project root.
-   - If it doesn’t, the app will create it when you run it the first time.
-2. Copy any photos you want to organize into `input_images/`.
-   - Supported extensions (case-insensitive):
-     - `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`, `.tif`, `.tiff`, `.gif`
+The app scans a folder you select and **never alters the originals**.
+
+Supported extensions (case-insensitive):
+
+- Images: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`, `.tif`, `.tiff`, `.gif`
+- RAW (best-effort scanning): `.dng`, `.cr2`, `.cr3`, `.nef`, `.arw`, `.raf`, `.rw2`, `.orf`, `.srw`
 
 ---
 
@@ -129,20 +134,52 @@ python app.py
 
 The program will:
 
-- Read all supported image files from `input_images/`.
-- For each image:
-  - Call Google Cloud Vision to get:
-    - Labels and confidence scores.
-    - Face detection results.
-    - Text (OCR) if present.
-  - Classify the image into Events, Portraits, Crowd, Stage, Indoor, Night, Formal, or Misc.
-  - Copy the image into `organized_output/<Category>/`.
+- Read supported files from `input_images/` (recursive).
+- Analyze each image with Vision (labels, faces, OCR text).
+- Classify into Outdoor/Indoor/Photobooth/Portrait/Group/Other.
+- Generate outputs in `side_a_outputs/`:
+  - `metadata.csv`
+  - `suggested_keywords.csv`
+  - `optional_xmp/` (placeholder folder for future XMP sidecar export)
+
+---
+
+## Lightroom Classic XMP sidecar test (RAW-first)
+
+JPEG/TIFF validation is not reliable for Lightroom Classic because Lightroom often writes metadata directly into those formats. For **proprietary RAW files**, Lightroom Classic commonly uses **XMP sidecars**.
+
+### Generate XMP sidecars next to RAW files
+
+From the project root:
+
+```bash
+python app.py --mode test-xmp-raw --input "C:\path\to\your\raw_folder"
+```
+
+This will, for each RAW file (`.cr2`, `.cr3`, `.nef`, `.arw`, `.orf`, `.rw2`, `.raf`, `.dng`):
+
+- Create `IMG_1234.xmp` next to `IMG_1234.CR2` (same basename, same folder)
+- Print:
+  - RAW filename
+  - generated XMP path
+  - keywords written
+- Validate:
+  - `IMG_1234.xmp` exists
+  - `dc:subject` contains the generated keywords
+
+### Lightroom Classic verification steps
+
+1. Import the RAW files into Lightroom Classic.
+2. Generate XMP sidecars with the command above.
+3. In Lightroom Classic, select the RAW photo.
+4. Use **Metadata > Read Metadata from File**.
+5. Check **Keyword Tags** (and hierarchical keywords if enabled).
 
 ---
 
 ## 5. Desktop GUI (recommended for photographers)
 
-A simple Windows desktop app lets you choose folders and run processing without using the command line.
+A simple Windows desktop app lets you choose a folder and generate Lightroom-safe metadata outputs.
 
 ### Run the GUI
 
@@ -150,11 +187,11 @@ A simple Windows desktop app lets you choose folders and run processing without 
 python gui.py
 ```
 
-1. Click **Browse...** next to "Select Photos Folder" and choose the folder with your photos.
+1. Click **Browse** and choose the folder with your photos/RAW files.
 2. Click **Start Processing**.
-3. Watch the progress bar and status messages.
-4. When done, view the summary (total processed, folders created, images per category).
-5. Click **Open Organized Folder** to open the results (photos are in `Organized/` inside your selected folder).
+3. When done, open the results folder and optionally **Review & Edit Suggested Keywords**.
+
+Outputs are written to `SideA_Metadata/` inside the selected folder.
 
 Credentials are auto-detected from `keys/vision-key.json` if present (see section 2).
 
@@ -195,31 +232,30 @@ SideA_PhotoOrganizer.exe
 
 ## 7. Classification rules (high-level)
 
-The classifier maps Vision labels to photographer-friendly categories:
+The classifier maps Vision labels to Lightroom-friendly categories:
 
-- **Crowd** – 3+ faces, or labels like crowd, group, people, audience
-- **Portraits** – 1–2 faces with person/face labels
-- **Stage** – stage, performance, theater, presentation
-- **Events** – event, celebration, party, wedding, concert
-- **Night** – night, nightlife, dark, evening
-- **Formal** – suit, formal, business, corporate
-- **Indoor** – indoor, room, furniture, ceiling, floor, wall
-- **Misc** – fallback when no clear match
+- **Photobooth** – explicit “photo booth” OCR/labels
+- **Group** – 3+ faces or group/crowd indicators
+- **Portrait** – 1–2 faces and portrait indicators
+- **Outdoor** – outdoor/nature indicators
+- **Indoor** – indoor/interior indicators
+- **Other** – fallback when no clear match
 
 Edit `classifier.py` to adjust the rules.
 
 ---
 
-## 8. `metadata.csv` format
+## 8. Output CSV formats
 
-The file `organized_output/metadata.csv` is created (with a header) if it does not exist and one row is appended per processed image.
+### `metadata.csv`
+
+Written to the output folder (GUI: `SideA_Metadata/`, CLI: `side_a_outputs/`). One row per processed image.
 
 Columns:
 
 - **`filename`**: Base filename of the image.
-- **`original_path`**: Absolute path to the image in `input_images/`.
-- **`new_path`**: Absolute path to the copied image inside `organized_output/<Category>/`.
-- **`category`**: One of Events, Portraits, Crowd, Stage, Indoor, Night, Formal, Misc.
+- **`original_path`**: Absolute path to the image on disk (never changed).
+- **`category`**: One of Outdoor, Indoor, Photobooth, Portrait, Group, Other.
 - **`top_labels`**: Comma-separated list of the top labels from Vision.
 - **`face_count`**: Number of faces detected in the image.
 - **`confidence_summary`**: Semi-colon separated `label(score)` pairs (score in \[0,1\]).
@@ -227,10 +263,23 @@ Columns:
 
 ---
 
+### `suggested_keywords.csv`
+
+Also written to the output folder. One row per processed image.
+
+Columns:
+
+- **`filename`**
+- **`original_path`**
+- **`suggested_keywords`**: Comma-separated Lightroom-style keywords.
+- **`primary_category`**
+- **`notes`**
+
+---
+
 ## 9. Customization ideas
 
 - Adjust or expand label keywords for each category in `classifier.py`.
-- Change the number of top labels used in the summary.
-- Add more Vision features (e.g., safe-search, landmarks) if needed.
-- Integrate with a GUI or web frontend.
+- Tweak suggested keyword composition (see `app.py`).
+- Implement optional XMP sidecar export to `optional_xmp/`.
 

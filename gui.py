@@ -2,9 +2,10 @@
 Side_A - Photo Organization GUI
 
 A polished desktop interface for photographers. AI-powered photo sorting
-into Events, Portraits, Crowd, Stage, Indoor, Night, Formal, and Misc.
+into Lightroom-friendly metadata outputs (no file moving or renaming).
 """
 
+import csv
 import os
 import queue
 import subprocess
@@ -16,6 +17,7 @@ from typing import Any, Dict, Optional
 import customtkinter as ctk
 from PIL import Image, ImageTk
 from tkinter import Canvas, Label as TkLabel
+from tkinter import ttk
 
 # Add project root to path for PyInstaller / direct run
 if getattr(sys, "frozen", False):
@@ -36,7 +38,7 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 _status_queue: queue.Queue = queue.Queue()
-ORGANIZED_SUBFOLDER = "Organized"
+OUTPUTS_SUBFOLDER = "SideA_Metadata"
 
 THUMB_SIZE = (160, 120)
 
@@ -80,12 +82,13 @@ class SideAApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Side A Photo Organizer")
+        self.title("Side A Metadata Tagging Assistant")
         self.geometry("620x680")
         self.minsize(520, 600)
 
         self.photos_folder = ctk.StringVar(value="")
         self._output_folder_after_done: Optional[str] = None
+        self._suggested_keywords_csv_after_done: Optional[str] = None
         self._bg_photo: Any = None
         self._bg_image_pil: Any = None
         self._thumb_photo: Any = None
@@ -144,17 +147,25 @@ class SideAApp(ctk.CTk):
         title_frame.pack(fill="x", pady=(0, 4))
         title = ctk.CTkLabel(
             title_frame,
-            text="Side A Photo Organizer",
+            text="Side A Metadata Tagging Assistant",
             font=ctk.CTkFont(size=28, weight="bold"),
         )
         title.pack(anchor="center")
         subtitle = ctk.CTkLabel(
             title_frame,
-            text="AI-powered photo sorting",
+            text="Lightroom-safe metadata + keyword suggestions",
             font=ctk.CTkFont(size=14),
             text_color=("gray60", "gray70"),
         )
         subtitle.pack(anchor="center", pady=(2, 0))
+
+        safety = ctk.CTkLabel(
+            title_frame,
+            text="This tool does not move or rename your original files.",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=("#93c5fd", "#bfdbfe"),
+        )
+        safety.pack(anchor="center", pady=(10, 0))
 
         # Folder selection - centered
         folder_frame = ctk.CTkFrame(inner, fg_color="transparent")
@@ -248,10 +259,10 @@ class SideAApp(ctk.CTk):
         )
         self._status_text.pack(fill="x", pady=(0, 12))
 
-        # Open Organized Folder - hidden until done
+        # Open Results Folder - hidden until done
         self._open_btn = ctk.CTkButton(
             inner,
-            text=f" {ICON_CHECK}  Open Organized Folder",
+            text=f" {ICON_CHECK}  Open Results Folder",
             font=ctk.CTkFont(size=15, weight="bold"),
             height=44,
             fg_color="#059669",
@@ -261,6 +272,20 @@ class SideAApp(ctk.CTk):
         )
         self._open_btn.pack(fill="x")
         self._open_btn.pack_forget()
+
+        # Review button - hidden until done
+        self._review_btn = ctk.CTkButton(
+            inner,
+            text="Review & Edit Suggested Keywords",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=40,
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            corner_radius=10,
+            command=self._open_review_window,
+        )
+        self._review_btn.pack(fill="x", pady=(10, 0))
+        self._review_btn.pack_forget()
 
     def _select_folder(self) -> None:
         path = ctk.filedialog.askdirectory(title="Select folder with photos")
@@ -327,7 +352,7 @@ class SideAApp(ctk.CTk):
             self._append_status("The selected folder does not exist.")
             return
 
-        output_dir = os.path.join(folder, ORGANIZED_SUBFOLDER)
+        output_dir = os.path.join(folder, OUTPUTS_SUBFOLDER)
 
         self._set_processing_state(True)
         self._start_btn.configure(text=" Processing...")
@@ -339,6 +364,7 @@ class SideAApp(ctk.CTk):
         self._status_text.delete("1.0", "end")
         self._status_text.configure(state="disabled")
         self._open_btn.pack_forget()
+        self._review_btn.pack_forget()
 
         def worker() -> None:
             try:
@@ -347,7 +373,6 @@ class SideAApp(ctk.CTk):
                     output_dir,
                     status_callback=_queue_status,
                     progress_callback=_queue_progress,
-                    write_metadata=False,
                 )
                 _queue_result(success, message, summary)
             except Exception as e:
@@ -377,15 +402,19 @@ class SideAApp(ctk.CTk):
             self._append_status("")
             self._append_status(format_summary(summary))
             folder = self.photos_folder.get().strip()
-            self._output_folder_after_done = os.path.join(folder, ORGANIZED_SUBFOLDER)
+            self._output_folder_after_done = os.path.join(folder, OUTPUTS_SUBFOLDER)
+            outputs = summary.get("outputs") or {}
+            self._suggested_keywords_csv_after_done = outputs.get("suggested_keywords_csv")
             if os.path.isdir(self._output_folder_after_done):
                 self._open_btn.pack(fill="x", pady=(8, 0))
+                self._review_btn.pack(fill="x", pady=(10, 0))
         elif success:
             self._counter_label.configure(text="Complete!")
             folder = self.photos_folder.get().strip()
-            self._output_folder_after_done = os.path.join(folder, ORGANIZED_SUBFOLDER)
+            self._output_folder_after_done = os.path.join(folder, OUTPUTS_SUBFOLDER)
             if os.path.isdir(self._output_folder_after_done):
                 self._open_btn.pack(fill="x", pady=(8, 0))
+                self._review_btn.pack(fill="x", pady=(10, 0))
         else:
             self._counter_label.configure(text="")
             self._append_status("")
@@ -403,6 +432,119 @@ class SideAApp(ctk.CTk):
                 subprocess.run(["open", folder], check=False)
             else:
                 subprocess.run(["xdg-open", folder], check=False)
+
+    def _open_review_window(self) -> None:
+        csv_path = self._suggested_keywords_csv_after_done or ""
+        if not csv_path or not os.path.isfile(csv_path):
+            self._append_status("Could not find suggested_keywords.csv to review.")
+            return
+
+        win = ctk.CTkToplevel(self)
+        win.title("Review Suggested Keywords")
+        win.geometry("920x520")
+
+        container = ctk.CTkFrame(win, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=16, pady=16)
+
+        header = ctk.CTkLabel(
+            container,
+            text="Edit keywords and categories, then Save.",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
+        header.pack(anchor="w", pady=(0, 10))
+
+        columns = ("filename", "original_path", "suggested_keywords", "primary_category", "notes")
+        tree = ttk.Treeview(container, columns=columns, show="headings", height=14)
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=160 if col != "original_path" else 280, stretch=True)
+
+        yscroll = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=yscroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        yscroll.pack(side="left", fill="y")
+
+        rows: list[dict[str, str]] = []
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                row = {c: (r.get(c) or "") for c in columns}
+                rows.append(row)
+                tree.insert("", "end", values=tuple(row[c] for c in columns))
+
+        editor = ctk.CTkFrame(container, fg_color="transparent")
+        editor.pack(side="left", fill="y", padx=(12, 0))
+
+        selected_idx: dict[str, Optional[int]] = {"i": None}
+
+        kw_var = ctk.StringVar(value="")
+        cat_var = ctk.StringVar(value="")
+        notes_var = ctk.StringVar(value="")
+
+        ctk.CTkLabel(editor, text="Suggested keywords", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
+        kw_entry = ctk.CTkTextbox(editor, height=160, width=260)
+        kw_entry.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(editor, text="Primary category", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
+        cat_entry = ctk.CTkEntry(editor, textvariable=cat_var, width=260)
+        cat_entry.pack(fill="x", pady=(4, 10))
+
+        ctk.CTkLabel(editor, text="Notes", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
+        notes_entry = ctk.CTkEntry(editor, textvariable=notes_var, width=260)
+        notes_entry.pack(fill="x", pady=(4, 10))
+
+        def load_selection() -> None:
+            sel = tree.selection()
+            if not sel:
+                return
+            item_id = sel[0]
+            values = tree.item(item_id, "values")
+            if not values:
+                return
+            # Find row index by filename+original_path match
+            fn, op = values[0], values[1]
+            idx = next((j for j, r in enumerate(rows) if r["filename"] == fn and r["original_path"] == op), None)
+            selected_idx["i"] = idx
+            if idx is None:
+                return
+            kw_entry.delete("1.0", "end")
+            kw_entry.insert("1.0", rows[idx]["suggested_keywords"])
+            cat_var.set(rows[idx]["primary_category"])
+            notes_var.set(rows[idx]["notes"])
+
+        def apply_edits_to_selected() -> None:
+            idx = selected_idx["i"]
+            sel = tree.selection()
+            if idx is None or not sel:
+                return
+            rows[idx]["suggested_keywords"] = kw_entry.get("1.0", "end").strip()
+            rows[idx]["primary_category"] = (cat_var.get() or "").strip()
+            rows[idx]["notes"] = (notes_var.get() or "").strip()
+            item_id = sel[0]
+            tree.item(
+                item_id,
+                values=(
+                    rows[idx]["filename"],
+                    rows[idx]["original_path"],
+                    rows[idx]["suggested_keywords"],
+                    rows[idx]["primary_category"],
+                    rows[idx]["notes"],
+                ),
+            )
+
+        def save_csv() -> None:
+            apply_edits_to_selected()
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=list(columns))
+                writer.writeheader()
+                for r in rows:
+                    writer.writerow(r)
+            self._append_status(f"Saved edits to: {csv_path}")
+
+        tree.bind("<<TreeviewSelect>>", lambda _e: load_selection())
+
+        ctk.CTkButton(editor, text="Apply edits to selected row", command=apply_edits_to_selected).pack(fill="x", pady=(6, 6))
+        ctk.CTkButton(editor, text="Save CSV", fg_color="#059669", hover_color="#047857", command=save_csv).pack(fill="x")
 
 
 def main() -> None:

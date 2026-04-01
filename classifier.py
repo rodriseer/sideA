@@ -2,44 +2,62 @@
 Classifier for photographer-friendly categories.
 
 Maps Google Vision labels to simple folder categories:
-Events, Portraits, Crowd, Stage, Indoor, Night, Formal, Misc
+Outdoor, Indoor, Photobooth, Portrait, Group, Other
 """
 
 from typing import Dict, List, Tuple
 
 # Category order for priority (first match wins in some cases)
-CATEGORIES = ("Events", "Portraits", "Crowd", "Stage", "Indoor", "Night", "Formal", "Misc")
+CATEGORIES = ("Photobooth", "Group", "Portrait", "Outdoor", "Indoor", "Other")
 
-EVENTS_INDICATORS = {
-    "event", "celebration", "party", "wedding", "concert", "conference",
-    "gathering", "festival", "ceremony", "reception", "banquet",
+PHOTOBOOTH_INDICATORS = {
+    "photo booth",
+    "photobooth",
+    "photo booth strip",
+    "instant camera",
+    "polaroid",
+    "frame",
+    "collage",
+    "poster",
+    "text",
 }
 
-PORTRAITS_INDICATORS = {
-    "person", "face", "portrait", "selfie", "human", "adult", "child",
+PORTRAIT_INDICATORS = {
+    "person",
+    "face",
+    "portrait",
+    "selfie",
+    "human",
+    "headshot",
 }
 
-CROWD_INDICATORS = {
-    "crowd", "group", "people", "audience", "crowded",
-}
-
-STAGE_INDICATORS = {
-    "stage", "performance", "theater", "theatre", "concert", "speaker",
-    "presentation", "podium",
+GROUP_INDICATORS = {
+    "crowd",
+    "group",
+    "people",
+    "audience",
+    "team",
 }
 
 INDOOR_INDICATORS = {
     "indoor", "room", "furniture", "ceiling", "floor", "wall", "walls",
-    "interior", "building",
+    "interior", "building", "studio", "lighting",
 }
 
-NIGHT_INDICATORS = {
-    "night", "nightlife", "dark", "nighttime", "evening", "dusk",
-}
-
-FORMAL_INDICATORS = {
-    "suit", "formal", "business", "professional", "corporate",
-    "office", "meeting",
+OUTDOOR_INDICATORS = {
+    "outdoor",
+    "nature",
+    "sky",
+    "tree",
+    "grass",
+    "park",
+    "beach",
+    "mountain",
+    "landscape",
+    "ocean",
+    "forest",
+    "sunlight",
+    "city",
 }
 
 
@@ -60,41 +78,33 @@ def classify_image(
     """
     Classify an image into a photographer-friendly category.
 
-    Categories: Events, Portraits, Crowd, Stage, Indoor, Night, Formal, Misc
+    Categories: Outdoor, Indoor, Photobooth, Portrait, Group, Other
     """
     labels = [_normalize_label(item["description"]) for item in label_data]
     label_set = set(labels)
+    ocr_lower = (ocr_text or "").strip().lower()
 
-    # Crowd: many people
-    if face_count >= 3 or _count_matches(labels, CROWD_INDICATORS) > 0:
-        return "Crowd"
+    # Photobooth: explicit label or OCR cue
+    if any(ind in ocr_lower for ind in ("photo booth", "photobooth")) or _count_matches(labels, PHOTOBOOTH_INDICATORS) > 0:
+        return "Photobooth"
 
-    # Portraits: 1-2 faces, person-focused
-    if face_count >= 1 and face_count <= 2:
-        if _count_matches(labels, PORTRAITS_INDICATORS) > 0 or "person" in label_set or "face" in label_set:
-            return "Portraits"
+    # Group: many people
+    if face_count >= 3 or _count_matches(labels, GROUP_INDICATORS) > 0:
+        return "Group"
 
-    # Stage: performance, presentation
-    if _count_matches(labels, STAGE_INDICATORS) > 0:
-        return "Stage"
+    # Portrait: 1-2 faces, person-focused
+    if 1 <= face_count <= 2:
+        if _count_matches(labels, PORTRAIT_INDICATORS) > 0 or "person" in label_set or "face" in label_set:
+            return "Portrait"
 
-    # Events: celebrations, parties, weddings
-    if _count_matches(labels, EVENTS_INDICATORS) > 0:
-        return "Events"
+    # Outdoor / Indoor
+    if _count_matches(labels, OUTDOOR_INDICATORS) > 0:
+        return "Outdoor"
 
-    # Night
-    if _count_matches(labels, NIGHT_INDICATORS) > 0:
-        return "Night"
-
-    # Formal
-    if _count_matches(labels, FORMAL_INDICATORS) > 0:
-        return "Formal"
-
-    # Indoor
     if _count_matches(labels, INDOOR_INDICATORS) > 0:
         return "Indoor"
 
-    return "Misc"
+    return "Other"
 
 
 def summarize_labels(label_data: List[Dict[str, float]], top_k: int = 5) -> Tuple[str, str]:
