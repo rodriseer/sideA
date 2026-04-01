@@ -373,6 +373,7 @@ class SideAApp(ctk.CTk):
                     output_dir,
                     status_callback=_queue_status,
                     progress_callback=_queue_progress,
+                    keep_previews=False,
                 )
                 _queue_result(success, message, summary)
             except Exception as e:

@@ -11,6 +11,9 @@ import logging
 import os
 import random
 import argparse
+import traceback
+import time
+from pathlib import Path
 from xml.etree import ElementTree as ET
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -111,6 +114,51 @@ def get_raw_files(input_dir: str) -> List[str]:
             if _is_raw_file(name):
                 raws.append(os.path.join(root, name))
     return raws
+
+
+def _extension_upper(path: str) -> str:
+    return os.path.splitext(path)[1].lstrip(".").upper()
+
+
+def _verify_readable_bytes(path: str) -> None:
+    """
+    Verify the file can be opened and read as bytes (basic sanity check).
+    """
+    with open(path, "rb") as f:
+        _ = f.read(512)
+
+
+def _generate_preview_jpeg_for_analysis(original_path: str, output_dir: str) -> str:
+    """
+    RAW/DNG fallback: generate a JPEG preview for Vision analysis only.
+    The original file remains untouched.
+    """
+    try:
+        import rawpy  # type: ignore
+        import numpy as np  # type: ignore
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError(
+            "RAW preview fallback requires rawpy + numpy + Pillow. "
+            "Install dependencies and retry."
+        ) from exc
+
+    previews_dir = os.path.join(output_dir, "temp_previews")
+    os.makedirs(previews_dir, exist_ok=True)
+
+    base = os.path.splitext(os.path.basename(original_path))[0]
+    preview_path = os.path.join(previews_dir, f"{base}.preview.jpg")
+
+    with rawpy.imread(original_path) as raw:
+        rgb = raw.postprocess(output_bps=8, no_auto_bright=True, use_camera_wb=True)
+    if not isinstance(rgb, np.ndarray):
+        raise RuntimeError("RAW preview conversion failed (no RGB data).")
+
+    img = Image.fromarray(rgb)
+    # Reduce size for faster upload/analysis (performance-focused).
+    img.thumbnail((1600, 1600))
+    img.save(preview_path, format="JPEG", quality=85, optimize=True)
+    return preview_path
 
 
 def validate_xmp_keywords(xmp_path: str, expected_keywords: List[str]) -> Tuple[bool, str]:
@@ -414,6 +462,7 @@ def process_image(
     metadata_csv_path: str,
     suggested_keywords_csv_path: str,
     optional_xmp_dir: str,
+    keep_previews: bool,
 ) -> Tuple[str, int, bool, bool]:
     """
     Process one image.
@@ -421,7 +470,36 @@ def process_image(
     Returns:
         (category, tag_count, faces_detected, failed)
     """
-    analysis = analyze_image(image_path, client=client)
+    # RAW/DNG handling:
+    # - verify bytes are readable
+    # - attempt Vision analysis on original path
+    # - if not reliable, fall back to JPEG preview conversion for analysis only
+    start_total = time.perf_counter()
+    _verify_readable_bytes(image_path)
+
+    ext = os.path.splitext(image_path)[1].lower()
+    tag_source = "original"
+    analysis_source = "original"
+    preview_path: Optional[str] = None
+
+    # RAW/DNG performance path: ALWAYS analyze a preview JPEG instead of the RAW/DNG.
+    if ext in RAW_EXTENSIONS:
+        tag_source = "preview_fallback"
+        analysis_source = "preview"
+        start_prev = time.perf_counter()
+        preview_path = _generate_preview_jpeg_for_analysis(image_path, output_dir=output_dir)
+        preview_seconds = time.perf_counter() - start_prev
+        logger.info("Preview generation: %.3fs (%s)", preview_seconds, os.path.basename(image_path))
+
+        start_api = time.perf_counter()
+        analysis = analyze_image(preview_path, client=client)
+        api_seconds = time.perf_counter() - start_api
+        logger.info("Vision API request: %.3fs (%s)", api_seconds, os.path.basename(image_path))
+    else:
+        start_api = time.perf_counter()
+        analysis = analyze_image(image_path, client=client)
+        api_seconds = time.perf_counter() - start_api
+        logger.info("Vision API request: %.3fs (%s)", api_seconds, os.path.basename(image_path))
     labels = analysis.get("labels", [])
     faces = analysis.get("faces", [])
     ocr_text = analysis.get("text", "") or ""
@@ -436,6 +514,7 @@ def process_image(
     top_labels = _comma_join(cleaned_tags[:7])
     confidence_summary = "; ".join([f"{t}({s:.2f})" for t, s in cleaned[:5]])
     processed_at = current_timestamp_iso()
+    processing_seconds = time.perf_counter() - start_total
 
     append_metadata_row(
         metadata_csv_path,
@@ -450,6 +529,9 @@ def process_image(
             "style_tags": _comma_join(buckets["style"]),
             "face_count": str(face_count),
             "confidence_summary": confidence_summary,
+            "tag_source": tag_source,
+            "analysis_source": analysis_source,
+            "processing_seconds": f"{processing_seconds:.3f}",
             "approved": "false",
             "date_processed": processed_at,
         },
@@ -485,6 +567,13 @@ def process_image(
     xmp_path = xmp_sidecar_path_for_image(image_path)
     write_xmp_sidecar(xmp_path, keywords=keyword_list, hierarchical_keywords=hierarchical)
 
+    # Cleanup preview unless configured to keep it
+    if preview_path and not keep_previews:
+        try:
+            os.remove(preview_path)
+        except Exception:
+            pass
+
     return category, len(cleaned_tags), face_count > 0, False
 
 
@@ -493,6 +582,7 @@ def run_processing(
     output_dir: str,
     status_callback: Optional[Callable[[str], None]] = None,
     progress_callback: Optional[Callable[[int, int, Optional[str], Optional[str]], None]] = None,
+    keep_previews: bool = False,
 ) -> tuple[bool, str, Optional[Dict]]:
     """
     Run the Lightroom-safe metadata pipeline.
@@ -524,15 +614,21 @@ def run_processing(
 
         status("Preparing output files...")
         metadata_csv_path, suggested_keywords_csv_path, optional_xmp_dir = ensure_output_dirs(output_dir)
+        errors_log_path = os.path.join(output_dir, "errors.log")
+        if not os.path.exists(errors_log_path):
+            with open(errors_log_path, "w", encoding="utf-8") as f:
+                f.write("filename\tfull_path\textension\terror_message\ttraceback_summary\n")
 
         total = len(images)
         by_category: Dict[str, int] = {c: 0 for c in CATEGORIES}
         failed_images = 0
         faces_detected_images = 0
         total_tag_count = 0
+        processed_successfully = 0
 
         for i, image_path in enumerate(images, 1):
-            status(f"Tagging {i} of {total}: {os.path.basename(image_path)}")
+            src = "preview" if os.path.splitext(image_path)[1].lower() in RAW_EXTENSIONS else "original"
+            status(f"Tagging {i} of {total} ({src}): {os.path.basename(image_path)}")
             try:
                 category, tag_count, faces_detected, _failed = process_image(
                     image_path,
@@ -541,17 +637,25 @@ def run_processing(
                     metadata_csv_path=metadata_csv_path,
                     suggested_keywords_csv_path=suggested_keywords_csv_path,
                     optional_xmp_dir=optional_xmp_dir,
+                    keep_previews=keep_previews,
                 )
                 by_category[category] = by_category.get(category, 0) + 1
                 total_tag_count += tag_count
+                processed_successfully += 1
                 if faces_detected:
                     faces_detected_images += 1
                 if progress_callback:
                     progress_callback(i, total, image_path, category)
             except Exception as exc:
-                logger.error("Failed to process %s: %s", image_path, exc)
+                logger.exception("Failed to process %s", image_path)
                 failed_images += 1
                 status(f"Skipped (failed): {os.path.basename(image_path)}")
+                tb_summary = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__, limit=6)).replace("\n", "\\n")
+                with open(errors_log_path, "a", encoding="utf-8") as f:
+                    f.write(
+                        f"{os.path.basename(image_path)}\t{os.path.abspath(image_path)}\t{_extension_upper(image_path)}\t"
+                        f"{str(exc).replace(chr(9),' ').replace(chr(10),' ').replace(chr(13),' ')}\t{tb_summary}\n"
+                    )
                 if progress_callback:
                     progress_callback(i, total, image_path, None)
 
@@ -579,15 +683,21 @@ def run_processing(
                 "suggested_keywords_csv": os.path.abspath(suggested_keywords_csv_path),
                 "optional_xmp_dir": os.path.abspath(optional_xmp_dir),
                 "run_summary_txt": os.path.abspath(run_summary_path),
+                "errors_log": os.path.abspath(errors_log_path),
             },
             "failed": failed_images,
             "faces_detected_images": faces_detected_images,
             "avg_tags_per_image": avg_tags,
+            "processed_successfully": processed_successfully,
         }
 
         status("Tagging complete.")
         status("Metadata exported successfully.")
         status("No files were moved or modified.")
+        status(f"Processed successfully: {processed_successfully}")
+        status(f"Failed: {failed_images}")
+        if failed_images:
+            status("See errors.log for details")
         return True, "", summary
 
     except Exception as exc:
@@ -686,12 +796,17 @@ def run_xmp_raw_test(input_dir: str, *, limit: Optional[int] = None) -> int:
         if limit and count > limit:
             break
 
+        # In test mode, prefer preview analysis for RAWs (performance/path realism).
         try:
-            # Best-effort analysis: some RAW formats may not be readable by Vision directly.
-            analysis = analyze_image(raw_path, client=client)
+            preview_path = _generate_preview_jpeg_for_analysis(raw_path, output_dir=os.path.join(input_dir, "SideA_Metadata"))
+            analysis = analyze_image(preview_path, client=client)
             labels = analysis.get("labels", [])
             faces = analysis.get("faces", [])
             ocr_text = analysis.get("text", "") or ""
+            try:
+                os.remove(preview_path)
+            except Exception:
+                pass
         except Exception:
             labels = []
             faces = []
@@ -747,6 +862,7 @@ def main() -> None:
         help="Run pipeline or RAW-focused XMP integration test",
     )
     parser.add_argument("--limit", type=int, default=0, help="Limit files in test mode (0 = no limit)")
+    parser.add_argument("--keep-previews", action="store_true", help="Keep temp preview JPEGs after processing")
     args = parser.parse_args()
 
     if args.mode == "demo-sample":
@@ -757,7 +873,7 @@ def main() -> None:
         raise SystemExit(run_xmp_raw_test(args.input, limit=(args.limit or None)))
 
     logger.info("Starting Side_A Lightroom-safe metadata tagging.")
-    success, msg, summary = run_processing(args.input, args.output)
+    success, msg, summary = run_processing(args.input, args.output, keep_previews=args.keep_previews)
     if not success:
         logger.error("%s", msg)
     else:

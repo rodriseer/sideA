@@ -15,6 +15,9 @@ METADATA_COLUMNS = [
     "style_tags",
     "face_count",
     "confidence_summary",
+    "tag_source",
+    "analysis_source",
+    "processing_seconds",
     "approved",
     "date_processed",
 ]

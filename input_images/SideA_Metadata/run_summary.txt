@@ -2,7 +2,7 @@ Side_A run summary
 ==================
 
 total images processed: 5
-number of outdoor / indoor / photobooth: 2 / 0 / 0
+number of outdoor / indoor / photobooth: 4 / 0 / 0
 average number of tags per image: 7.00
-number of images with faces detected: 2
-number of failed images: 3
+number of images with faces detected: 3
+number of failed images: 0

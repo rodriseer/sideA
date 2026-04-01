@@ -130,33 +130,28 @@ def analyze_image(
     content = _read_image_bytes(image_path)
     image = types.Image(content=content)
 
-    labels_result = client.label_detection(image=image)
-    faces_result = client.face_detection(image=image)
-    text_result = client.text_detection(image=image)
+    # Single request for performance: LABEL_DETECTION + FACE_DETECTION + TEXT_DETECTION
+    features = [
+        types.Feature(type_=vision.Feature.Type.LABEL_DETECTION),
+        types.Feature(type_=vision.Feature.Type.FACE_DETECTION),
+        types.Feature(type_=vision.Feature.Type.TEXT_DETECTION),
+    ]
+    response = client.annotate_image({"image": image, "features": features})
 
-    if labels_result.error.message:
-        logger.error("Label detection error for %s: %s", image_path, labels_result.error.message)
-        raise RuntimeError(labels_result.error.message)
-
-    if faces_result.error.message:
-        logger.error("Face detection error for %s: %s", image_path, faces_result.error.message)
-        raise RuntimeError(faces_result.error.message)
-
-    if text_result.error.message:
-        logger.error("Text detection error for %s: %s", image_path, text_result.error.message)
-        raise RuntimeError(text_result.error.message)
+    if response.error.message:
+        logger.error("Vision annotate_image error for %s: %s", image_path, response.error.message)
+        raise RuntimeError(response.error.message)
 
     labels: List[Dict[str, Any]] = [
         {"description": label.description, "score": float(label.score)}
-        for label in labels_result.label_annotations
+        for label in (response.label_annotations or [])
     ]
 
-    faces = list(faces_result.face_annotations)
+    faces = list(response.face_annotations or [])
 
     text_content = ""
-    if text_result.text_annotations:
-        # The first entry is usually the full text.
-        text_content = text_result.text_annotations[0].description or ""
+    if response.text_annotations:
+        text_content = response.text_annotations[0].description or ""
 
     return {
         "labels": labels,
