@@ -1,20 +1,18 @@
-# Credentials
-keys/
-.env
-.env.*
-
-# Local datasets / test images
-RAW PHOTOS/
-
 # Python
-.venv/
 __pycache__/
-*.py[cod]
-*.egg-info/
+*.pyc
 
-# Build outputs
+# Env / secrets
+.env
+*.json
+
+# BUT allow structure files if needed
+!config_template.json
+
+# PyInstaller
 dist/
 build/
+*.spec
 
 # OS
 .DS_Store

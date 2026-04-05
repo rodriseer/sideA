@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for Side_A Photo Organizer
+# PyInstaller spec — generic photo metadata GUI (branding in branding.py)
 # Build: pyinstaller SideA.spec
 
 block_cipher = None
@@ -23,6 +23,9 @@ a = Analysis(
     datas=_datas,
     hiddenimports=[
         'app',
+        'branding',
+        'brand',
+        'user_settings',
         'classifier',
         'metadata',
         'organizer',
@@ -58,7 +61,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SideA_PhotoOrganizer',
+    name='PhotoMetadataAssistant',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

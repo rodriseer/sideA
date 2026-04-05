@@ -1,10 +1,7 @@
 """
-Side_A - Lightroom-safe metadata tagging assistant.
+Lightroom-safe metadata tagging pipeline (CLI).
 
-Processes images with Google Vision, classifies into photographer-friendly
-categories, and generates metadata + keyword suggestion outputs only.
-
-This tool does not move or rename your original files.
+User-facing strings live in branding.py.
 """
 
 import logging
@@ -17,9 +14,11 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 from typing import Callable, Dict, List, Optional, Tuple
 
+import branding
 from classifier import CATEGORIES, classify_image
 from metadata import append_metadata_row, append_suggested_keywords_row, current_timestamp_iso
 from organizer import ensure_output_dirs, write_xmp_sidecar, xmp_sidecar_path_for_image
+from user_settings import apply_saved_credentials_to_environment
 from vision_client import analyze_image, check_vision_credentials, get_vision_client
 
 
@@ -31,7 +30,7 @@ logger = logging.getLogger("side_a")
 
 
 INPUT_DIR = "input_images"
-OUTPUT_DIR = "side_a_outputs"
+OUTPUT_DIR = branding.OUTPUTS_SUBFOLDER
 
 SUPPORTED_EXTENSIONS = {
     ".jpg",
@@ -597,7 +596,8 @@ def run_processing(
             status_callback(msg)
 
     try:
-        status("Analyzing folder (no files will be moved or modified)...")
+        apply_saved_credentials_to_environment()
+        status(branding.MSG_PIPELINE_ANALYZING)
         images = get_input_images(input_dir)
 
         if not images:
@@ -665,7 +665,7 @@ def run_processing(
         run_summary_path = os.path.join(output_dir, "run_summary.txt")
         try:
             with open(run_summary_path, "w", encoding="utf-8") as f:
-                f.write("Side_A run summary\n")
+                f.write(f"{branding.RUN_SUMMARY_HEADER}\n")
                 f.write("==================\n\n")
                 f.write(f"total images processed: {total}\n")
                 f.write(f"number of outdoor / indoor / photobooth: {by_category.get('Outdoor',0)} / {by_category.get('Indoor',0)} / {by_category.get('Photobooth',0)}\n")
@@ -693,7 +693,8 @@ def run_processing(
 
         status("Tagging complete.")
         status("Metadata exported successfully.")
-        status("No files were moved or modified.")
+        status(branding.MSG_PIPELINE_COMPLETE_ORIGINALS)
+        status(branding.MSG_PIPELINE_COMPLETE_OUTPUTS)
         status(f"Processed successfully: {processed_successfully}")
         status(f"Failed: {failed_images}")
         if failed_images:
@@ -704,7 +705,7 @@ def run_processing(
         err_msg = str(exc)
         logger.exception("Processing failed")
         if _is_credentials_error(err_msg):
-            return False, "Google Vision is not configured on this computer yet.", None
+            return False, branding.MSG_VISION_CREDENTIALS_REQUIRED, None
         return False, err_msg, None
 
 
@@ -732,6 +733,9 @@ def format_summary(summary: Dict) -> str:
         f"Images with faces detected: {summary.get('faces_detected_images', 0)}",
         f"Failed images: {summary.get('failed', 0)}",
         f"Avg tags per image: {summary.get('avg_tags_per_image', 0.0):.2f}",
+        "",
+        branding.APP_SAFETY_NOTE,
+        branding.SUMMARY_OUTPUTS_NOTE,
     ]
     return "\n".join(lines)
 
@@ -749,6 +753,7 @@ def demo_print_sample(input_dir: str, *, seed: Optional[int] = None) -> None:
         random.seed(seed)
     sample = random.choice(images)
 
+    apply_saved_credentials_to_environment()
     ok, cred_msg, _ = check_vision_credentials()
     if not ok:
         print(cred_msg)
@@ -783,6 +788,7 @@ def run_xmp_raw_test(input_dir: str, *, limit: Optional[int] = None) -> int:
         print("No RAW files found.")
         return 2
 
+    apply_saved_credentials_to_environment()
     ok, cred_msg, _ = check_vision_credentials()
     if not ok:
         print(cred_msg)
@@ -798,7 +804,9 @@ def run_xmp_raw_test(input_dir: str, *, limit: Optional[int] = None) -> int:
 
         # In test mode, prefer preview analysis for RAWs (performance/path realism).
         try:
-            preview_path = _generate_preview_jpeg_for_analysis(raw_path, output_dir=os.path.join(input_dir, "SideA_Metadata"))
+            preview_path = _generate_preview_jpeg_for_analysis(
+                raw_path, output_dir=os.path.join(input_dir, branding.OUTPUTS_SUBFOLDER)
+            )
             analysis = analyze_image(preview_path, client=client)
             labels = analysis.get("labels", [])
             faces = analysis.get("faces", [])
@@ -852,7 +860,9 @@ def run_xmp_raw_test(input_dir: str, *, limit: Optional[int] = None) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Side_A - Lightroom-safe metadata tagging assistant")
+    parser = argparse.ArgumentParser(
+        description=f"{branding.APP_NAME} — Lightroom-safe metadata tagging (CLI)"
+    )
     parser.add_argument("--input", default=INPUT_DIR, help="Input folder to scan")
     parser.add_argument("--output", default=OUTPUT_DIR, help="Output folder for CSV/report outputs")
     parser.add_argument(
@@ -872,7 +882,7 @@ def main() -> None:
     if args.mode == "test-xmp-raw":
         raise SystemExit(run_xmp_raw_test(args.input, limit=(args.limit or None)))
 
-    logger.info("Starting Side_A Lightroom-safe metadata tagging.")
+    logger.info("Starting %s (CLI).", branding.APP_NAME)
     success, msg, summary = run_processing(args.input, args.output, keep_previews=args.keep_previews)
     if not success:
         logger.error("%s", msg)

@@ -49,6 +49,49 @@ def _clean_keywords(words: Iterable[str]) -> List[str]:
     return out
 
 
+def normalize_original_path_for_sidecar(original_image_path: str) -> str:
+    """Resolve to an absolute, normalized path for stable XMP sidecar lookup (Lightroom-safe)."""
+    p = (original_image_path or "").strip()
+    if not p:
+        return ""
+    try:
+        return os.path.abspath(os.path.normpath(p))
+    except Exception:
+        return p
+
+
+def rewrite_xmp_sidecar_if_exists(
+    original_image_path: str,
+    suggested_keywords_csv: str,
+    primary_category: str,
+) -> bool:
+    """
+    If an XMP sidecar exists next to the original image, rewrite keywords to match the CSV row.
+
+    Does nothing if no sidecar is present. Never modifies the image file.
+    """
+    original_image_path = normalize_original_path_for_sidecar(original_image_path)
+    if not original_image_path:
+        return False
+    xmp_path = xmp_sidecar_path_for_image(original_image_path)
+    if not os.path.isfile(xmp_path):
+        return False
+
+    kws = [k.strip() for k in (suggested_keywords_csv or "").split(",") if k.strip()]
+    cat = (primary_category or "").strip()
+    if cat and cat.lower() not in {k.lower() for k in kws}:
+        kws.insert(0, cat)
+
+    hierarchical = [f"Category|{cat}"] if cat else []
+
+    write_xmp_sidecar(
+        xmp_path,
+        keywords=kws,
+        hierarchical_keywords=hierarchical or None,
+    )
+    return True
+
+
 def write_xmp_sidecar(
     xmp_path: str,
     *,

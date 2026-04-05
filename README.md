@@ -1,6 +1,6 @@
-## Side_A – Lightroom-safe Metadata Tagging Assistant (Google Cloud Vision)
+## Photo Metadata Assistant — Lightroom-safe metadata tool (Google Cloud Vision)
 
-Side_A is a Python project that analyzes photos using the **Google Cloud Vision API** and generates **metadata + keyword suggestions** for Lightroom-compatible workflows.
+The **product name**, **output folder name**, **per-user config slug**, and all user-facing strings are defined in **`branding.py`** (defaults are generic so the app reads as a standalone photography utility). The project uses the **Google Cloud Vision API** and generates **metadata, keyword suggestions, and XMP sidecars** for Lightroom-compatible workflows.
 
 It will:
 
@@ -12,20 +12,23 @@ It will:
   - **Portrait**
   - **Group**
   - **Other**
-- **Write outputs only** (`metadata.csv`, `suggested_keywords.csv`, and an optional future `optional_xmp/` export folder).
+- **Write outputs only** (`metadata.csv`, `suggested_keywords.csv`, XMP sidecars next to originals, logs under the output folder).
 
 ### Lightroom compatibility (important)
 
 Lightroom catalogs depend on **stable file paths** for RAW/photo files. If files are moved, renamed, or reorganized on disk, Lightroom can lose references.
 
-**This tool does not move or rename your original files.** It only reads images where they already are and generates metadata/keyword suggestions for Lightroom workflows.
+**This tool does not move, rename, or alter your original image files.** It reads images in place and generates metadata, keyword suggestions, and optional XMP sidecars for Lightroom-compatible workflows.
 
 ---
 
 ## Project structure
 
+- **`branding.py`**: **Central branding** — `APP_NAME`, `WINDOW_TITLE`, `OUTPUTS_SUBFOLDER`, `APP_CONFIG_SLUG` (user settings folder), pipeline/UI copy, and About text.
+- **`brand.py`**: Thin compatibility shim (re-exports `branding` + legacy names like `OUTPUT_FOLDER_NAME`).
+- **`user_settings.py`**: Loads/saves **`config.json`** in the OS user data folder (path to the Google **service account JSON**). PyInstaller-safe; migrates legacy `settings.json` if present.
 - **`app.py`**: Main pipeline (scan folder → Vision → classify → write CSV outputs).
-- **`gui.py`**: Desktop GUI (folder selection, progress, lightweight review/edit of suggested keywords).
+- **`gui.py`**: Desktop GUI (Setup Guide onboarding, folder selection, progress, review/edit keywords + XMP sync).
 - **`vision_client.py`**: Wraps Google Cloud Vision API calls.
 - **`classifier.py`**: Rule-based logic for Outdoor, Indoor, Photobooth, Portrait, Group, Other.
 - **`organizer.py`**: Output manager (Lightroom-safe: creates output folders only, no file operations on originals).
@@ -44,7 +47,7 @@ Lightroom catalogs depend on **stable file paths** for RAW/photo files. If files
   - A project created.
   - **Vision API enabled**.
   - A **service account key** (JSON file) with permission to use the Vision API.
-- Ability to set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable on your system.
+- **Recommended:** use the GUI **Setup Guide** (step-by-step) to create credentials in Google Cloud, choose the service account JSON, and tap **Test Connection**; the path is stored in `config.json` and applied automatically (no environment variables required for typical users).
 
 ---
 
@@ -79,37 +82,21 @@ pip install -r requirements.txt
    - Enable **Vision API**.
    - Create a **service account** and download its **JSON key file**.
 
-2. **Easiest (automatic):** Place the key file at `keys/vision-key.json` inside the project folder (or next to the `.exe` when packaged). The app will use it automatically if `GOOGLE_APPLICATION_CREDENTIALS` is not set.
+2. **GUI (recommended):** Run `python gui.py` → **Setup Guide** → follow the steps → **Select Credentials File (.json)** → **Test Connection** (this saves the path). The path is stored under your user profile (see the hint in the guide).
 
-3. **Alternative:** Set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the full path of your JSON key file.
+3. **CLI / scripts:** On each run the app calls `apply_saved_credentials_to_environment()` so the same **`config.json`** path is used. If nothing is saved yet, a valid **`GOOGLE_APPLICATION_CREDENTIALS`** environment variable or optional **`keys/vision-key.json`** next to the project or `.exe` still works for developers.
 
-On **Windows (PowerShell, current session)**:
+### Where the app looks for credentials (order of use)
 
-```powershell
-$env:GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\vision-key.json"
-```
+1. **Path saved in `config.json`** (from Setup Guide / **Test Connection**) — if the file still exists, it is applied as `GOOGLE_APPLICATION_CREDENTIALS` for that run.
 
-On **macOS / Linux**:
+2. **`GOOGLE_APPLICATION_CREDENTIALS`** (if already set and the file exists) — useful for CI or advanced setups.
 
-```bash
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/vision-key.json"
-```
+3. **`keys/vision-key.json`** — optional fallback beside the repo or packaged `.exe`.
 
-### Where the app looks for credentials
+4. Other **Application Default Credentials** (e.g. `gcloud auth application-default login`) if no service-account file is found.
 
-1. **`GOOGLE_APPLICATION_CREDENTIALS`** (if already set)  
-   - Uses the path from the environment variable.
-
-2. **`keys/vision-key.json`** (automatic fallback)  
-   - Relative to the project folder when running as a script, or next to the `.exe` when packaged.  
-   - No environment variable needed.
-
-3. **User credentials from `gcloud auth application-default login`**  
-   - Stored in `%APPDATA%\gcloud\application_default_credentials.json` (Windows) or `$HOME/.config/gcloud/` (Linux/macOS).
-
-4. **Attached service account** (when running on Google Cloud).
-
-If none are found, the app shows a clear error with the expected path.
+If none are valid, the GUI asks you to connect your Google Vision credentials file; the CLI prints a short error.
 
 ---
 
@@ -126,7 +113,7 @@ Supported extensions (case-insensitive):
 
 ## 4. Run the program
 
-From the project root (with the virtual environment activated and `GOOGLE_APPLICATION_CREDENTIALS` set):
+From the project root (with the virtual environment activated and Vision credentials configured as in section 2):
 
 ```bash
 python app.py
@@ -137,7 +124,7 @@ The program will:
 - Read supported files from `input_images/` (recursive).
 - Analyze each image with Vision (labels, faces, OCR text).
 - Classify into Outdoor/Indoor/Photobooth/Portrait/Group/Other.
-- Generate outputs in `side_a_outputs/`:
+- Generate outputs in `PhotoMetadata_Output/` (change `OUTPUTS_SUBFOLDER` in `branding.py`):
   - `metadata.csv`
   - `suggested_keywords.csv`
   - `optional_xmp/` (placeholder folder for future XMP sidecar export)
@@ -187,13 +174,12 @@ A simple Windows desktop app lets you choose a folder and generate Lightroom-saf
 python gui.py
 ```
 
-1. Click **Browse** and choose the folder with your photos/RAW files.
-2. Click **Start Processing**.
-3. When done, open the results folder and optionally **Review & Edit Suggested Keywords**.
+1. Complete **Setup Guide** once (service account JSON), if prompted.
+2. Click **Browse** and choose the folder with your photos/RAW files.
+3. Click **Start analysis**.
+4. When done, open the results folder and optionally **Review & edit keywords**.
 
-Outputs are written to `SideA_Metadata/` inside the selected folder.
-
-Credentials are auto-detected from `keys/vision-key.json` if present (see section 2).
+Outputs are written to `PhotoMetadata_Output/` inside the selected folder (set `OUTPUTS_SUBFOLDER` in `branding.py`).
 
 ---
 
@@ -216,17 +202,12 @@ To create a standalone Windows executable so others can run the app without inst
    Or use the one-line command:
 
    ```bash
-   pyinstaller --onefile --windowed --name SideA_PhotoOrganizer --hidden-import=app --hidden-import=classifier --hidden-import=metadata --hidden-import=organizer --hidden-import=vision_client --hidden-import=customtkinter --hidden-import=google.cloud.vision --hidden-import=google.cloud.vision_v1 --hidden-import=google.auth gui.py
+   pyinstaller --onefile --windowed --name PhotoMetadataAssistant --hidden-import=app --hidden-import=classifier --hidden-import=metadata --hidden-import=organizer --hidden-import=vision_client --hidden-import=customtkinter --hidden-import=google.cloud.vision --hidden-import=google.cloud.vision_v1 --hidden-import=google.auth gui.py
    ```
 
-3. The `.exe` will be in the `dist/` folder: `dist\SideA_PhotoOrganizer.exe`.
+3. The `.exe` will be in the `dist/` folder: `dist\PhotoMetadataAssistant.exe`.
 
-**Important for end users:** The `.exe` still needs `GOOGLE_APPLICATION_CREDENTIALS` set to the path of the service account JSON key. They can set it in System Properties → Environment Variables, or run from a batch file:
-
-```batch
-set GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\your\vision-key.json
-SideA_PhotoOrganizer.exe
-```
+**Important for end users:** After launching the `.exe`, open **Setup Guide** from the main window or **Settings → Setup Guide…**, follow the steps, choose the JSON file, and tap **Test Connection** to save. No environment variables are required. Developers may still use `GOOGLE_APPLICATION_CREDENTIALS` or `keys/vision-key.json` if they prefer.
 
 ---
 
@@ -249,7 +230,7 @@ Edit `classifier.py` to adjust the rules.
 
 ### `metadata.csv`
 
-Written to the output folder (GUI: `SideA_Metadata/`, CLI: `side_a_outputs/`). One row per processed image.
+Written to the output folder (default: `PhotoMetadata_Output/` next to your photos, or the CLI `--output` path). One row per processed image.
 
 Columns:
 

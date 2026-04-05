@@ -1,11 +1,15 @@
+import json
 import logging
 import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import branding
 from google.cloud import vision
 from google.cloud.vision_v1 import types
+
+from user_settings import get_saved_credentials_path
 
 try:
     from google.auth.exceptions import DefaultCredentialsError
@@ -15,11 +19,31 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-CREDENTIALS_ERROR_MESSAGE = (
-    "Google Vision is not configured on this computer yet."
-)
+CREDENTIALS_ERROR_MESSAGE = branding.MSG_VISION_CREDENTIALS_REQUIRED
 
 DEFAULT_CREDENTIALS_PATH = Path("keys") / "vision-key.json"
+
+
+def validate_service_account_json_file(path: str) -> Tuple[bool, str]:
+    """
+    Return (ok, error_message). Ensures the file looks like a Google service account key
+    (not an API key or unrelated JSON).
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        return False, "That file is not valid JSON."
+    except OSError as exc:
+        return False, f"Could not read the file: {exc}"
+    if not isinstance(data, dict):
+        return False, "That file is not a valid credentials file."
+    if data.get("type") != "service_account":
+        return (
+            False,
+            "Please choose a Google Cloud service account JSON file (from Google Cloud Console → IAM → Service accounts).",
+        )
+    return True, ""
 
 
 def _get_app_base() -> Path:
@@ -49,6 +73,12 @@ def ensure_credentials() -> Tuple[bool, str, Optional[str]]:
             return True, "", existing
         logger.warning("GOOGLE_APPLICATION_CREDENTIALS points to missing file: %s", existing)
 
+    saved = get_saved_credentials_path()
+    if saved:
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = saved
+        logger.info("Using credentials from app user settings: %s", saved)
+        return True, "", saved
+
     base = _get_app_base()
     default_path = base / DEFAULT_CREDENTIALS_PATH
     if default_path.is_file():
@@ -58,10 +88,10 @@ def ensure_credentials() -> Tuple[bool, str, Optional[str]]:
         return True, "", abs_path
 
     msg = (
-        "Google Vision is not configured on this computer yet.\n\n"
-        "Place your service account key at:\n  %s\n\n"
-        "Or set the GOOGLE_APPLICATION_CREDENTIALS environment variable."
-    ) % str(default_path)
+        f"{branding.MSG_VISION_CREDENTIALS_REQUIRED}\n\n"
+        f"{branding.CREDENTIALS_CLI_HINT}\n\n"
+        f"Optional for developers: place a service account JSON next to the app at:\n  {default_path.resolve()}"
+    )
     logger.warning("Credentials not found at %s", default_path)
     return False, msg, None
 
