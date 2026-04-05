@@ -2,18 +2,47 @@
 __pycache__/
 *.pyc
 
-# Env / secrets
+# Build / packaging
+build/
+dist/
+*.spec
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# Secrets
 .env
 *.json
 
-# BUT allow structure files if needed
-!config_template.json
-
-# PyInstaller
-dist/
-build/
-*.spec
+# Large binaries
+*.exe
+*.zip
+*.msi
 
 # OS
-.DS_Store
 Thumbs.db
+.DS_Store
+
+# App outputs
+outputs/
+temp/
+tmp/
+preview/
+previews/
+logs/
+
+# Photo files
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+*.raw
+*.cr2
+*.cr3
+*.nef
+*.arw
+*.dng
+*.xmp
