@@ -1,11 +1,11 @@
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import branding
+from bundle_paths import get_runtime_base_dir
 from google.cloud import vision
 from google.cloud.vision_v1 import types
 
@@ -47,10 +47,8 @@ def validate_service_account_json_file(path: str) -> Tuple[bool, str]:
 
 
 def _get_app_base() -> Path:
-    """Return the app/project base directory (works for script and PyInstaller exe)."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).parent
+    """Directory for optional keys/ next to the bundle (macOS) or exe (Windows)."""
+    return get_runtime_base_dir()
 
 
 def ensure_credentials() -> Tuple[bool, str, Optional[str]]:

@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec — generic photo metadata GUI (branding in branding.py)
+# Windows-focused one-file build (produces PhotoMetadataAssistant.exe).
+# For macOS .app bundle, use SideA_macos.spec on a Mac.
 # Build: pyinstaller SideA.spec
 
 block_cipher = None
@@ -25,6 +26,7 @@ a = Analysis(
         'app',
         'branding',
         'brand',
+        'bundle_paths',
         'user_settings',
         'classifier',
         'metadata',

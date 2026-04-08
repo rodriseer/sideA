@@ -21,11 +21,10 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 from tkinter import Canvas, Label as TkLabel, messagebox, ttk
 
+from bundle_paths import get_resource_search_dirs, get_runtime_base_dir
+
 # Add project root to path for PyInstaller / direct run
-if getattr(sys, "frozen", False):
-    _base = Path(sys.executable).parent
-else:
-    _base = Path(__file__).parent
+_base = get_runtime_base_dir() if getattr(sys, "frozen", False) else Path(__file__).parent
 sys.path.insert(0, str(_base))
 
 import branding
@@ -59,21 +58,11 @@ THUMB_SIZE = (160, 120)
 
 
 def _get_app_base() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).parent
+    return get_runtime_base_dir() if getattr(sys, "frozen", False) else Path(__file__).parent
 
 
 def _find_background_path() -> Optional[Path]:
-    if getattr(sys, "frozen", False):
-        search_dirs = []
-        if hasattr(sys, "_MEIPASS"):
-            search_dirs.append(Path(sys._MEIPASS))
-        search_dirs.append(Path(sys.executable).parent)
-    else:
-        base = Path(__file__).parent
-        search_dirs = [base / "public", base]
-    for search_dir in search_dirs:
+    for search_dir in get_resource_search_dirs():
         for ext in (".jpg", ".jpeg", ".png", ".webp", ".bmp"):
             p = search_dir / f"background{ext}"
             if p.is_file():
