@@ -5,7 +5,8 @@ __pycache__/
 # Build / packaging
 build/
 dist/
-*.spec
+# *.spec intentionally NOT ignored — SideA.spec and SideA_macos.spec are
+# required by PyInstaller and must be committed to the repo.
 
 # Virtual env
 venv/
@@ -33,10 +34,9 @@ preview/
 previews/
 logs/
 
-# Photo files
+# Photo files (user data — never commit)
 *.jpg
 *.jpeg
-*.png
 *.tif
 *.tiff
 *.raw
@@ -46,3 +46,9 @@ logs/
 *.arw
 *.dng
 *.xmp
+
+# Images — block generic photos but keep the app logo
+*.png
+!logo.png
+!logo_128.png
+!background.png
