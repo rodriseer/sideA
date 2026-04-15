@@ -1,0 +1,58 @@
+name: Build macOS App
+
+# Runs every time you push to main, and whenever you publish a GitHub Release.
+# The finished .app is zipped and attached to the release automatically.
+on:
+  push:
+    branches: [main, master]
+  release:
+    types: [published]
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      # ── 1. Check out your code ──────────────────────────────────────────────
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 3. Install dependencies ─────────────────────────────────────────────
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 4. Generate the logo ────────────────────────────────────────────────
+      - name: Generate logo
+        run: python tools/make_logo.py
+
+      # ── 5. Build the .app with PyInstaller ──────────────────────────────────
+      - name: Build .app bundle
+        run: pyinstaller --clean --noconfirm SideA_macos.spec
+
+      # ── 6. Zip the .app so it can be downloaded as a single file ────────────
+      - name: Zip the .app
+        run: |
+          cd dist
+          zip -r PhotoMetadataAssistant-macOS.zip PhotoMetadataAssistant.app
+          echo "Build complete: $(du -sh PhotoMetadataAssistant-macOS.zip)"
+
+      # ── 7. Upload as a build artifact (available on every push) ─────────────
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoMetadataAssistant-macOS
+          path: dist/PhotoMetadataAssistant-macOS.zip
+          retention-days: 30
+
+      # ── 8. Attach to GitHub Release (only when you publish a release) ────────
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PhotoMetadataAssistant-macOS.zip
