@@ -6,16 +6,14 @@
 block_cipher = None
 
 import os
-_background = None
-for name in ('background.jpeg', 'background.jpg', 'background.png', 'background.webp', 'background.bmp'):
-    if os.path.exists(name):
-        _background = name
-        break
-    pub = os.path.join('public', name)
-    if os.path.exists(pub):
-        _background = pub
-        break
-_datas = [(_background, '.')] if _background else []
+
+# Resources to ship inside the bundle. The background image has been removed
+# from the brand; only the logo is shipped now. Both sizes are included so the
+# UI can pick a crisp source for HiDPI.
+_datas = []
+for _name in ("logo.png", "logo_128.png"):
+    if os.path.exists(_name):
+        _datas.append((_name, "."))
 
 a = Analysis(
     ['gui.py'],
@@ -27,6 +25,7 @@ a = Analysis(
         'branding',
         'brand',
         'bundle_paths',
+        'theme',
         'user_settings',
         'classifier',
         'metadata',
@@ -64,6 +63,7 @@ exe = EXE(
     a.datas,
     [],
     name='PhotoMetadataAssistant',
+    icon='logo.png' if os.path.exists('logo.png') else None,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
